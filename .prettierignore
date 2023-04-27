@@ -1,0 +1,14 @@
+node_modules
+typechain-types
+artifacts
+cache
+coverage*
+gasReporterOutput.json
+package.json
+img
+.env
+.*
+README.md
+coverage.json
+deployments
+tsconfig.json

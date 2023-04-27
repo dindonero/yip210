@@ -31,7 +31,7 @@ contract YIP210 {
     function execute() public {
         if (block.timestamp - lastExecuted < EXECUTION_DELAY)
             revert YIP210__ExecutionDelayNotReached(lastExecuted + EXECUTION_DELAY - block.timestamp);
-        
+
         uint256 ethBalance = WETH.balanceOf(RESERVES);
         uint256 usdcBalance = USDC.balanceOf(RESERVES);
 
