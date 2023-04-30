@@ -10,7 +10,7 @@ const deployYIP210: DeployFunction = async function (hre: HardhatRuntimeEnvironm
     await deploy("YIP210", {
         from: deployer,
         log: true,
-        args: []
+        args: [],
     })
 
     log("YIP210 Deployed!")
