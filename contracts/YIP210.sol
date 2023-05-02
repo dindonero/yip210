@@ -3,23 +3,36 @@
 pragma solidity ^0.8.18;
 
 import "./interfaces/ILido.sol";
-import "./interfaces/ICurveRouter.sol";
+import "./interfaces/ICurvePool.sol";
+import "./interfaces/IWETH9.sol";
+import "hardhat/console.sol";
+
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
+import "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol";
 
 error YIP210__ExecutionDelayNotReached(uint256 timeToExecute);
 error YIP210__MinimumRebalancePercentageNotReached(uint256 percentage, uint256 minimumPercentage);
 
 contract YIP210 {
-    IERC20 internal constant WETH = IERC20(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
+
+    IWETH9 internal constant WETH = IWETH9(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
 
     IERC20 internal constant USDC = IERC20(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48);
 
+    IERC20 internal constant USDT = IERC20(0xdAC17F958D2ee523a2206206994597C13D831ec7);
+
     ILido internal constant STETH = ILido(0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84);
 
-    ICurveRouter internal constant CURVE_ROUTER =
-        ICurveRouter(0x99a58482BD75cbab83b27EC03CA68fF489b5788f);
+    ICurvePool internal constant CURVE_USDC_USDT_POOL =
+        ICurvePool(0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7);
+
+    ICurvePool2 internal constant CURVE_USDT_ETH_POOL =
+        ICurvePool2(0xD51a44d3FaE010294C616388b506AcdA1bfAAE46);
+
+    ICurvePool internal constant CURVE_ETH_STETH_POOL =
+        ICurvePool(0xDC24316b9AE028F1497c275EB9192a3Ea0f67022);
 
     address internal constant RESERVES = 0x97990B693835da58A281636296D2Bf02787DEa17;
 
@@ -103,14 +116,15 @@ contract YIP210 {
             uint256 minAmountOut = stETHExpected -
                 ((stETHExpected * SLIPPAGE_TOLERANCE) / RATIO_PRECISION_MULTIPLIER);
 
-            // Setting swap minAmountOut to 0 and ensuring tolerance after depositing ETH to Lido
-            swapUSDCtoETH(usdcToSwap, 0);
+            swapUSDCtoETH(usdcToSwap);
             uint256 stEthReceived = depositETHToLido();
 
             // Ensuring slippage tolerance
             require(stEthReceived >= minAmountOut, "YIP210::execute: Slippage tolerance not met");
 
             emit RebalancedUSDCToStETH(usdcToSwap, stEthReceived);
+
+            console.log("stEthReceived: %s", stEthReceived);
 
             STETH.transfer(RESERVES, stEthReceived);
         }
@@ -119,46 +133,31 @@ contract YIP210 {
     }
 
     function curveSwapStETHToUSDC(uint256 amount, uint256 minAmountOut) internal returns (uint256) {
-        address[9] memory route = [
-            0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84,
-            0xDC24316b9AE028F1497c275EB9192a3Ea0f67022,
-            0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE,
-            0xD51a44d3FaE010294C616388b506AcdA1bfAAE46,
-            0xdAC17F958D2ee523a2206206994597C13D831ec7,
-            0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7,
-            0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48,
-            0x0000000000000000000000000000000000000000,
-            0x0000000000000000000000000000000000000000
-        ];
+        STETH.approve(address(CURVE_ETH_STETH_POOL), amount);
+        CURVE_ETH_STETH_POOL.exchange(1, 0, amount, 0);
 
-        uint256[3] memory swap_params_helper = [uint256(0), uint256(0), uint256(0)];
-        uint256[3][4] memory swap_params = [swap_params_helper, swap_params_helper, swap_params_helper, swap_params_helper];
+        uint256 amountETH = address(this).balance;
+        CURVE_USDT_ETH_POOL.exchange{value: amountETH}(2, 0, amountETH, 0, true);
 
-        STETH.approve(address(CURVE_ROUTER), STETH.balanceOf(address(this)));
-        return CURVE_ROUTER.exchange_multiple(route, swap_params, amount, minAmountOut);
+        uint256 amountUSDT = USDT.balanceOf(address(this));
+        TransferHelper.safeApprove(address(USDT), address(CURVE_USDT_ETH_POOL), amountUSDT);
+        CURVE_USDC_USDT_POOL.exchange(2, 1, amountUSDT, minAmountOut);
+        return USDC.balanceOf(address(this));
     }
 
-    function swapUSDCtoETH(uint256 amount, uint256 minAmountOut) internal {
-        address[9] memory route = [
-            0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48,
-            0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7,
-            0xdAC17F958D2ee523a2206206994597C13D831ec7,
-            0xD51a44d3FaE010294C616388b506AcdA1bfAAE46,
-            0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE,
-            0x0000000000000000000000000000000000000000,
-            0x0000000000000000000000000000000000000000,
-            0x0000000000000000000000000000000000000000,
-            0x0000000000000000000000000000000000000000
-        ];
+    function swapUSDCtoETH(uint256 amount) internal {
+        USDC.approve(address(CURVE_USDC_USDT_POOL), amount);
+        CURVE_USDC_USDT_POOL.exchange(1, 2, amount, 0);
 
-        uint256[3] memory swap_params_helper = [uint256(0), uint256(0), uint256(0)];
-        uint256[3][4] memory swap_params = [swap_params_helper, swap_params_helper, swap_params_helper, swap_params_helper];
+        uint256 amountUSDT = USDT.balanceOf(address(this));
+        TransferHelper.safeApprove(address(USDT), address(CURVE_USDT_ETH_POOL), amountUSDT);
 
-        USDC.approve(address(CURVE_ROUTER), USDC.balanceOf(address(this)));
-        CURVE_ROUTER.exchange_multiple(route, swap_params, amount, minAmountOut);
+        CURVE_USDT_ETH_POOL.exchange(0, 2, amountUSDT, 0, true);
     }
 
     function depositETHToLido() internal returns (uint256) {
         return STETH.submit{value: address(this).balance}(address(0));
     }
+
+    receive() external payable {}
 }

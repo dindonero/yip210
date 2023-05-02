@@ -3,7 +3,6 @@
 pragma solidity ^0.8.18;
 
 interface IYamGovernorAlpha {
-
     enum ProposalState {
         Pending,
         Active,
@@ -21,9 +20,7 @@ interface IYamGovernorAlpha {
         string[] memory signatures,
         bytes[] memory calldatas,
         string memory description
-    )
-    external
-    returns (uint256);
+    ) external returns (uint256);
 
     function latestProposalIds(address who) external view returns (uint256);
 
