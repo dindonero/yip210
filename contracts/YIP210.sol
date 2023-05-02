@@ -117,8 +117,8 @@ contract YIP210 {
                 ((stETHExpected * SLIPPAGE_TOLERANCE) / RATIO_PRECISION_MULTIPLIER);
 
             swapUSDCtoETH(usdcToSwap);
-            uint256 stEthReceived = depositETHToLido();
-
+            depositETHToLido();
+            uint256 stEthReceived = STETH.balanceOf(address(this));
             // Ensuring slippage tolerance
             require(stEthReceived >= minAmountOut, "YIP210::execute: Slippage tolerance not met");
 
