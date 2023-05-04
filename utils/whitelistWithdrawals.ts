@@ -79,7 +79,7 @@ export const whitelistWithdrawals = async (proposalAddress: string) => {
     await executeTx.wait(1)
 }
 
-const mineBlocks = async (blockNumber: number) => {
+export const mineBlocks = async (blockNumber: number) => {
     while (blockNumber > 0) {
         blockNumber--
         await network.provider.request({

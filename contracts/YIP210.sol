@@ -68,11 +68,8 @@ contract YIP210 {
         uint256 stEthBalance = STETH.balanceOf(RESERVES);
         uint256 usdcBalance = USDC.balanceOf(RESERVES);
 
-        (, int256 stEthPrice, , , ) = STETH_USD_PRICE_FEED.latestRoundData();
-        (, int256 usdcPrice, , , ) = USDC_USD_PRICE_FEED.latestRoundData();
-
-        uint256 stEthValue = uint256(stEthPrice) * stEthBalance;
-        uint256 usdcValue = uint256(usdcPrice) * usdcBalance;
+        uint256 stEthValue = getConversionRate(STETH_USD_PRICE_FEED, stEthBalance);
+        uint256 usdcValue = getConversionRate(USDC_USD_PRICE_FEED, usdcBalance);
 
         uint256 totalValue = stEthValue + usdcValue;
 
@@ -80,12 +77,26 @@ contract YIP210 {
 
         uint256 usdcPercentage = (usdcValue * RATIO_PRECISION_MULTIPLIER) / totalValue;
 
+        console.log(STETH.balanceOf(address(this)));
+        console.log(USDC.balanceOf(address(this)));
+        console.log(address(this).balance);
+
+        console.log(stEthBalance, usdcBalance);
+        console.log(stEthValue, usdcValue);
+        console.log(totalValue);
+
+        console.log(stEthPercentage);
+        console.log(usdcPercentage);
+
         if (stEthPercentage > RATIO_STETH_USDC) {
             if (stEthPercentage - RATIO_STETH_USDC < MINIMUM_REBALANCE_PERCENTAGE)
                 revert YIP210__MinimumRebalancePercentageNotReached(
                     stEthPercentage,
                     MINIMUM_REBALANCE_PERCENTAGE
                 );
+
+            console.log(stEthPercentage - RATIO_STETH_USDC);
+
 
             uint256 stEthToSwap = ((stEthPercentage - RATIO_STETH_USDC) * stEthBalance) /
                 RATIO_PRECISION_MULTIPLIER;
@@ -119,12 +130,11 @@ contract YIP210 {
             swapUSDCtoETH(usdcToSwap);
             depositETHToLido();
             uint256 stEthReceived = STETH.balanceOf(address(this));
+
             // Ensuring slippage tolerance
             require(stEthReceived >= minAmountOut, "YIP210::execute: Slippage tolerance not met");
 
             emit RebalancedUSDCToStETH(usdcToSwap, stEthReceived);
-
-            console.log("stEthReceived: %s", stEthReceived);
 
             STETH.transfer(RESERVES, stEthReceived);
         }
@@ -140,7 +150,7 @@ contract YIP210 {
         CURVE_USDT_ETH_POOL.exchange{value: amountETH}(2, 0, amountETH, 0, true);
 
         uint256 amountUSDT = USDT.balanceOf(address(this));
-        TransferHelper.safeApprove(address(USDT), address(CURVE_USDT_ETH_POOL), amountUSDT);
+        TransferHelper.safeApprove(address(USDT), address(CURVE_USDC_USDT_POOL), amountUSDT);
         CURVE_USDC_USDT_POOL.exchange(2, 1, amountUSDT, minAmountOut);
         return USDC.balanceOf(address(this));
     }
@@ -152,11 +162,34 @@ contract YIP210 {
         uint256 amountUSDT = USDT.balanceOf(address(this));
         TransferHelper.safeApprove(address(USDT), address(CURVE_USDT_ETH_POOL), amountUSDT);
 
+        console.log("usdc", amount, amountUSDT, address(this).balance);
         CURVE_USDT_ETH_POOL.exchange(0, 2, amountUSDT, 0, true);
+        console.log(address(this).balance);
     }
 
     function depositETHToLido() internal returns (uint256) {
         return STETH.submit{value: address(this).balance}(address(0));
+    }
+
+    function getPrice(AggregatorV3Interface priceFeed) internal view returns (uint256) {
+        (, int256 answer, , , ) = priceFeed.latestRoundData();
+        // ETH/USD rate in 18 digit
+        return uint256(answer * 10000000000);
+        // or (Both will do the same thing)
+        // return uint256(answer * 1e10); // 1* 10 ** 10 == 10000000000
+    }
+
+    function getConversionRate(AggregatorV3Interface priceFeed, uint256 assetAmount)
+    internal
+    view
+    returns (uint256)
+    {
+        uint256 assetPrice = getPrice();
+        uint256 assetAmountInUsd = (assetPrice * assetAmount) / 1000000000000000000;
+        // or (Both will do the same thing)
+        // uint256 ethAmountInUsd = (ethPrice * ethAmount) / 1e18; // 1 * 10 ** 18 == 1000000000000000000
+        // the actual ETH/USD conversion rate, after adjusting the extra 0s.
+        return assetAmountInUsd;
     }
 
     receive() external payable {}

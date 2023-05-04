@@ -1,6 +1,6 @@
 import { deployments, ethers, network } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { whitelistWithdrawals } from "../utils/whitelistWithdrawals"
+import { mineBlocks, whitelistWithdrawals } from "../utils/whitelistWithdrawals";
 import { IERC20, YIP210 } from "../typechain-types";
 import { RESERVES, STETH, USDC } from "../helper-hardhat-config";
 
@@ -28,7 +28,13 @@ describe("YIP210", function () {
         const initStethBalance = await stethContract.balanceOf(YIP210.address)
         const initStethBalanceReserves = await stethContract.balanceOf(RESERVES)
 
-        const tx = await YIP210.execute()
+        let tx = await YIP210.execute()
+        await tx.wait(1)
+
+        await network.provider.send("evm_increaseTime", [2591999])
+        await mineBlocks(1)
+
+        tx = await YIP210.execute()
         await tx.wait(1)
 
         const finalUsdcBalance = await usdcContract.balanceOf(YIP210.address)
