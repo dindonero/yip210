@@ -4,7 +4,6 @@ pragma solidity ^0.8.18;
 
 import "./interfaces/ILido.sol";
 import "./interfaces/ICurvePool.sol";
-import "./interfaces/IWETH9.sol";
 import "hardhat/console.sol";
 
 
@@ -16,8 +15,6 @@ error YIP210__ExecutionDelayNotReached(uint256 timeToExecute);
 error YIP210__MinimumRebalancePercentageNotReached(uint256 percentage, uint256 minimumPercentage);
 
 contract YIP210 {
-
-    IWETH9 internal constant WETH = IWETH9(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
 
     IERC20 internal constant USDC = IERC20(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48);
 
@@ -41,7 +38,7 @@ contract YIP210 {
     uint256 public constant RATIO_USDC_STETH = 3000;
 
     // Max slippage = 0.1% (May fail due to price impact?)
-    uint256 public constant SLIPPAGE_TOLERANCE = 10;
+    uint256 public constant SLIPPAGE_TOLERANCE = 100;
 
     uint256 public constant MINIMUM_REBALANCE_PERCENTAGE = 750;
 
@@ -108,6 +105,8 @@ contract YIP210 {
             uint256 minAmountOut = usdcExpected -
                 ((usdcExpected * SLIPPAGE_TOLERANCE) / RATIO_PRECISION_MULTIPLIER);
 
+            console.log("usdc min", minAmountOut, usdcBalance, usdcExpected);
+
             uint256 usdcReceived = curveSwapStETHToUSDC(stEthToSwap, minAmountOut);
 
             emit RebalancedStETHToUSDC(stEthToSwap, usdcReceived);
@@ -124,13 +123,16 @@ contract YIP210 {
                 RATIO_PRECISION_MULTIPLIER;
             USDC.transferFrom(RESERVES, address(this), usdcToSwap);
 
-            uint256 stETHExpected = (getUSDCConversionRate(usdcToSwap)) / getPrice(STETH_USD_PRICE_FEED);
+            uint256 stETHExpected = (getUSDCConversionRate(usdcToSwap) * 10**18) / getPrice(STETH_USD_PRICE_FEED);
             uint256 minAmountOut = stETHExpected -
                 ((stETHExpected * SLIPPAGE_TOLERANCE) / RATIO_PRECISION_MULTIPLIER);
 
             swapUSDCtoETH(usdcToSwap);
             depositETHToLido();
             uint256 stEthReceived = STETH.balanceOf(address(this));
+
+            console.log("steth min", minAmountOut, stEthBalance, stETHExpected);
+
 
             // Ensuring slippage tolerance
             require(stEthReceived >= minAmountOut, "YIP210::execute: Slippage tolerance not met");
@@ -151,6 +153,7 @@ contract YIP210 {
         CURVE_USDT_ETH_POOL.exchange{value: amountETH}(2, 0, amountETH, 0, true);
 
         uint256 amountUSDT = USDT.balanceOf(address(this));
+        // @dev using transferHelper due to USDT lack of return value
         TransferHelper.safeApprove(address(USDT), address(CURVE_USDC_USDT_POOL), amountUSDT);
         CURVE_USDC_USDT_POOL.exchange(2, 1, amountUSDT, minAmountOut);
         return USDC.balanceOf(address(this));
