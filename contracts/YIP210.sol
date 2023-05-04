@@ -68,8 +68,8 @@ contract YIP210 {
         uint256 stEthBalance = STETH.balanceOf(RESERVES);
         uint256 usdcBalance = USDC.balanceOf(RESERVES);
 
-        uint256 stEthValue = getConversionRate(STETH_USD_PRICE_FEED, stEthBalance);
-        uint256 usdcValue = getConversionRate(USDC_USD_PRICE_FEED, usdcBalance);
+        uint256 stEthValue = getStETHConversionRate(stEthBalance);
+        uint256 usdcValue = getUSDCConversionRate(usdcBalance);
 
         uint256 totalValue = stEthValue + usdcValue;
 
@@ -103,7 +103,8 @@ contract YIP210 {
             STETH.transferFrom(RESERVES, address(this), stEthToSwap);
 
             // Slippage math based on chainlink price feeds with 0.1% slippage tolerance
-            uint256 usdcExpected = (stEthToSwap * uint256(stEthPrice)) / uint256(usdcPrice);
+            // math is = sethValue (with 18 decimals) / usdcPrice (with 18 decimals) * 10⁶ => usdc (with 6 decimals)
+            uint256 usdcExpected = getStETHConversionRate(stEthToSwap) * 10**6 / getPrice(USDC_USD_PRICE_FEED);
             uint256 minAmountOut = usdcExpected -
                 ((usdcExpected * SLIPPAGE_TOLERANCE) / RATIO_PRECISION_MULTIPLIER);
 
@@ -123,7 +124,7 @@ contract YIP210 {
                 RATIO_PRECISION_MULTIPLIER;
             USDC.transferFrom(RESERVES, address(this), usdcToSwap);
 
-            uint256 stETHExpected = (usdcToSwap * uint256(usdcPrice)) / uint256(stEthPrice);
+            uint256 stETHExpected = (getUSDCConversionRate(usdcToSwap)) / getPrice(STETH_USD_PRICE_FEED);
             uint256 minAmountOut = stETHExpected -
                 ((stETHExpected * SLIPPAGE_TOLERANCE) / RATIO_PRECISION_MULTIPLIER);
 
@@ -179,16 +180,29 @@ contract YIP210 {
         // return uint256(answer * 1e10); // 1* 10 ** 10 == 10000000000
     }
 
-    function getConversionRate(AggregatorV3Interface priceFeed, uint256 assetAmount)
+    function getStETHConversionRate(uint256 assetAmount)
     internal
     view
     returns (uint256)
     {
-        uint256 assetPrice = getPrice();
+        uint256 assetPrice = getPrice(STETH_USD_PRICE_FEED);
         uint256 assetAmountInUsd = (assetPrice * assetAmount) / 1000000000000000000;
         // or (Both will do the same thing)
         // uint256 ethAmountInUsd = (ethPrice * ethAmount) / 1e18; // 1 * 10 ** 18 == 1000000000000000000
         // the actual ETH/USD conversion rate, after adjusting the extra 0s.
+        return assetAmountInUsd;
+    }
+
+    function getUSDCConversionRate(uint256 assetAmount)
+    internal
+    view
+    returns (uint256)
+    {
+        uint256 assetPrice = getPrice(USDC_USD_PRICE_FEED);
+        uint256 assetAmountInUsd = (assetPrice * assetAmount) / 1000000;
+        // or (Both will do the same thing)
+        // uint256 usdcAmountInUsd = (usdcPrice * usdcAmount) / 1e6; // 1 * 10 ** 6 == 1000000
+        // the actual USDC/USD conversion rate, after adjusting the extra 0s.
         return assetAmountInUsd;
     }
 

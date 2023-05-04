@@ -3,12 +3,13 @@ import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { mineBlocks, whitelistWithdrawals } from "../utils/whitelistWithdrawals";
 import { IERC20, YIP210 } from "../typechain-types";
 import { RESERVES, STETH, USDC } from "../helper-hardhat-config";
+import { expect } from "chai";
 
 describe("YIP210", function () {
     let YIP210: YIP210
     let deployer: SignerWithAddress
 
-    beforeEach(async () => {
+    beforeAll(async () => {
         const accounts = await ethers.getSigners()
         deployer = accounts[0]
 
@@ -20,7 +21,7 @@ describe("YIP210", function () {
             await whitelistWithdrawals(YIP210.address)
     })
 
-    it("should rebalance when more diff than 70/30 ratio", async () => {
+    it("should rebalance when more diff than 70/30 ratio (sell usdc for steth", async () => {
         const usdcContract = await ethers.getContractAt("IERC20", USDC)
         const stethContract = await ethers.getContractAt("IERC20", STETH)
         const initUsdcBalance = await usdcContract.balanceOf(YIP210.address)
@@ -28,13 +29,7 @@ describe("YIP210", function () {
         const initStethBalance = await stethContract.balanceOf(YIP210.address)
         const initStethBalanceReserves = await stethContract.balanceOf(RESERVES)
 
-        let tx = await YIP210.execute()
-        await tx.wait(1)
-
-        await network.provider.send("evm_increaseTime", [2591999])
-        await mineBlocks(1)
-
-        tx = await YIP210.execute()
+        const tx = await YIP210.execute()
         await tx.wait(1)
 
         const finalUsdcBalance = await usdcContract.balanceOf(YIP210.address)
@@ -53,4 +48,12 @@ describe("YIP210", function () {
         console.log("finalReservesUsdcRatio", finalUsdcBalanceReserves.div(finalUsdcBalanceReserves.add(finalStethBalanceReserves)).toString())
         console.log("finalReservesStethRatio", finalStethBalanceReserves.div(finalUsdcBalanceReserves.add(finalStethBalanceReserves)).toString())
     })
+
+    it(("should not rebalance when less diff than 70/30 ratio"), async () => {
+        await network.provider.send("evm_increaseTime", [2591999])
+        await mineBlocks(1)
+
+        expect(YIP210.execute()).to.be.revertedWith("YIP210__MinimumRebalancePercentageNotReached")
+    })
+
 })
