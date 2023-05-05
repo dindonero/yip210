@@ -4,6 +4,7 @@ pragma solidity ^0.8.18;
 
 import "./interfaces/ILido.sol";
 import "./interfaces/ICurvePool.sol";
+import "./interfaces/IWETH9.sol";
 import "hardhat/console.sol";
 
 
@@ -13,8 +14,11 @@ import "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol";
 
 error YIP210__ExecutionDelayNotReached(uint256 timeToExecute);
 error YIP210__MinimumRebalancePercentageNotReached(uint256 percentage, uint256 minimumPercentage);
+error YIP210__OnlyGovCanCallFunction();
 
 contract YIP210 {
+
+    IWETH9 internal constant WETH = IWETH9(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
 
     IERC20 internal constant USDC = IERC20(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48);
 
@@ -32,6 +36,7 @@ contract YIP210 {
         ICurvePool(0xDC24316b9AE028F1497c275EB9192a3Ea0f67022);
 
     address internal constant RESERVES = 0x97990B693835da58A281636296D2Bf02787DEa17;
+    address internal constant GOV = 0x8b4f1616751117C38a0f84F9A146cca191ea3EC5;
 
     // STETH = 70% ; USDC = 30%
     uint256 public constant RATIO_STETH_USDC = 7000;
@@ -56,7 +61,13 @@ contract YIP210 {
     event RebalancedUSDCToStETH(uint256 stEthSpent, uint256 usdcReceived);
     event RebalancedStETHToUSDC(uint256 usdcSpent, uint256 stEthReceived);
 
-    function execute() public {
+    modifier onlyGov() {
+        if (msg.sender != GOV) revert YIP210__OnlyGovCanCallFunction();
+        _;
+    }
+
+    function execute() public onlyGov {
+
         if (block.timestamp - lastExecuted < EXECUTION_DELAY)
             revert YIP210__ExecutionDelayNotReached(
                 lastExecuted + EXECUTION_DELAY - block.timestamp
@@ -143,6 +154,13 @@ contract YIP210 {
         }
 
         lastExecuted = block.timestamp;
+    }
+
+    function depositWETHIntoStETH() public onlyGov {
+        uint256 wethBalance = WETH.balanceOf(RESERVES);
+        WETH.transferFrom(RESERVES, address(this), wethBalance);
+        WETH.withdraw(wethBalance);
+        depositETHToLido();
     }
 
     function curveSwapStETHToUSDC(uint256 amount, uint256 minAmountOut) internal returns (uint256) {
