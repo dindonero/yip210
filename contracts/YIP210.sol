@@ -5,8 +5,6 @@ pragma solidity ^0.8.18;
 import "./interfaces/ILido.sol";
 import "./interfaces/ICurvePool.sol";
 import "./interfaces/IWETH9.sol";
-import "hardhat/console.sol";
-
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
@@ -17,7 +15,6 @@ error YIP210__MinimumRebalancePercentageNotReached(uint256 percentage, uint256 m
 error YIP210__OnlyGovCanCallFunction();
 
 contract YIP210 {
-
     IWETH9 internal constant WETH = IWETH9(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
 
     IERC20 internal constant USDC = IERC20(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48);
@@ -42,8 +39,8 @@ contract YIP210 {
     uint256 public constant RATIO_STETH_USDC = 7000;
     uint256 public constant RATIO_USDC_STETH = 3000;
 
-    // Max slippage = 0.1% (May fail due to price impact?)
-    uint256 public constant SLIPPAGE_TOLERANCE = 100;
+    // Max slippage = 2% (Increased slippage due to price impact and chainlink oracle != actual curve price)
+    uint256 public constant SLIPPAGE_TOLERANCE = 200;
 
     uint256 public constant MINIMUM_REBALANCE_PERCENTAGE = 750;
 
@@ -66,8 +63,7 @@ contract YIP210 {
         _;
     }
 
-    function execute() public onlyGov {
-
+    function execute() public {
         if (block.timestamp - lastExecuted < EXECUTION_DELAY)
             revert YIP210__ExecutionDelayNotReached(
                 lastExecuted + EXECUTION_DELAY - block.timestamp
@@ -85,17 +81,6 @@ contract YIP210 {
 
         uint256 usdcPercentage = (usdcValue * RATIO_PRECISION_MULTIPLIER) / totalValue;
 
-        console.log(STETH.balanceOf(address(this)));
-        console.log(USDC.balanceOf(address(this)));
-        console.log(address(this).balance);
-
-        console.log(stEthBalance, usdcBalance);
-        console.log(stEthValue, usdcValue);
-        console.log(totalValue);
-
-        console.log(stEthPercentage);
-        console.log(usdcPercentage);
-
         if (stEthPercentage > RATIO_STETH_USDC) {
             if (stEthPercentage - RATIO_STETH_USDC < MINIMUM_REBALANCE_PERCENTAGE)
                 revert YIP210__MinimumRebalancePercentageNotReached(
@@ -103,20 +88,16 @@ contract YIP210 {
                     MINIMUM_REBALANCE_PERCENTAGE
                 );
 
-            console.log(stEthPercentage - RATIO_STETH_USDC);
-
-
             uint256 stEthToSwap = ((stEthPercentage - RATIO_STETH_USDC) * stEthBalance) /
                 RATIO_PRECISION_MULTIPLIER;
             STETH.transferFrom(RESERVES, address(this), stEthToSwap);
 
             // Slippage math based on chainlink price feeds with 0.1% slippage tolerance
             // math is = sethValue (with 18 decimals) / usdcPrice (with 18 decimals) * 10⁶ => usdc (with 6 decimals)
-            uint256 usdcExpected = getStETHConversionRate(stEthToSwap) * 10**6 / getPrice(USDC_USD_PRICE_FEED);
+            uint256 usdcExpected = (getStETHConversionRate(stEthToSwap) * 10 ** 6) /
+                getPrice(USDC_USD_PRICE_FEED);
             uint256 minAmountOut = usdcExpected -
                 ((usdcExpected * SLIPPAGE_TOLERANCE) / RATIO_PRECISION_MULTIPLIER);
-
-            console.log("usdc min", minAmountOut, usdcBalance, usdcExpected);
 
             uint256 usdcReceived = curveSwapStETHToUSDC(stEthToSwap, minAmountOut);
 
@@ -134,16 +115,14 @@ contract YIP210 {
                 RATIO_PRECISION_MULTIPLIER;
             USDC.transferFrom(RESERVES, address(this), usdcToSwap);
 
-            uint256 stETHExpected = (getUSDCConversionRate(usdcToSwap) * 10**18) / getPrice(STETH_USD_PRICE_FEED);
+            uint256 stETHExpected = (getUSDCConversionRate(usdcToSwap) * 10 ** 18) /
+                getPrice(STETH_USD_PRICE_FEED);
             uint256 minAmountOut = stETHExpected -
                 ((stETHExpected * SLIPPAGE_TOLERANCE) / RATIO_PRECISION_MULTIPLIER);
 
             swapUSDCtoETH(usdcToSwap);
             depositETHToLido();
             uint256 stEthReceived = STETH.balanceOf(address(this));
-
-            console.log("steth min", minAmountOut, stEthBalance, stETHExpected);
-
 
             // Ensuring slippage tolerance
             require(stEthReceived >= minAmountOut, "YIP210::execute: Slippage tolerance not met");
@@ -161,6 +140,7 @@ contract YIP210 {
         WETH.transferFrom(RESERVES, address(this), wethBalance);
         WETH.withdraw(wethBalance);
         depositETHToLido();
+        STETH.transfer(RESERVES, STETH.balanceOf(address(this)));
     }
 
     function curveSwapStETHToUSDC(uint256 amount, uint256 minAmountOut) internal returns (uint256) {
@@ -184,9 +164,7 @@ contract YIP210 {
         uint256 amountUSDT = USDT.balanceOf(address(this));
         TransferHelper.safeApprove(address(USDT), address(CURVE_USDT_ETH_POOL), amountUSDT);
 
-        console.log("usdc", amount, amountUSDT, address(this).balance);
         CURVE_USDT_ETH_POOL.exchange(0, 2, amountUSDT, 0, true);
-        console.log(address(this).balance);
     }
 
     function depositETHToLido() internal returns (uint256) {
@@ -201,11 +179,7 @@ contract YIP210 {
         // return uint256(answer * 1e10); // 1* 10 ** 10 == 10000000000
     }
 
-    function getStETHConversionRate(uint256 assetAmount)
-    internal
-    view
-    returns (uint256)
-    {
+    function getStETHConversionRate(uint256 assetAmount) internal view returns (uint256) {
         uint256 assetPrice = getPrice(STETH_USD_PRICE_FEED);
         uint256 assetAmountInUsd = (assetPrice * assetAmount) / 1000000000000000000;
         // or (Both will do the same thing)
@@ -214,11 +188,7 @@ contract YIP210 {
         return assetAmountInUsd;
     }
 
-    function getUSDCConversionRate(uint256 assetAmount)
-    internal
-    view
-    returns (uint256)
-    {
+    function getUSDCConversionRate(uint256 assetAmount) internal view returns (uint256) {
         uint256 assetPrice = getPrice(USDC_USD_PRICE_FEED);
         uint256 assetAmountInUsd = (assetPrice * assetAmount) / 1000000;
         // or (Both will do the same thing)
