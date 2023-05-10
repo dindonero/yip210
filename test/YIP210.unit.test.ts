@@ -107,7 +107,7 @@ describe("YIP210", function () {
         expect(ratioStETH_USDC).to.be.lt(75)
     })
 
-    it("should not rebalance when less diff than 70/30 ratio", async () => {
+    it("should not rebalance when less diff than 7.5% diff", async () => {
         await network.provider.send("evm_increaseTime", [2591999])
         await mineBlocks(1)
 

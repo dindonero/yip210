@@ -63,7 +63,7 @@ contract YIP210 {
         _;
     }
 
-    function execute() public {
+    function execute() public onlyGov {
         if (block.timestamp - lastExecuted < EXECUTION_DELAY)
             revert YIP210__ExecutionDelayNotReached(
                 lastExecuted + EXECUTION_DELAY - block.timestamp
