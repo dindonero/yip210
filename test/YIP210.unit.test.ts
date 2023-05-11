@@ -209,9 +209,7 @@ describe("YIP210", function () {
         signatures.push(signature)
         calldatas.push(calldata)
 
-        //await passProposal(targets, values, signatures, calldatas, description)
-
-        const tx = await YIP210.execute()
+        await passProposal(targets, values, signatures, calldatas, description)
 
         const finalUsdcBalanceReserves = await usdcContract.balanceOf(RESERVES)
         const finalStethBalanceReserves = await stethContract.balanceOf(RESERVES)

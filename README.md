@@ -10,6 +10,5 @@ More info [here](https://snapshot.org/#/yam.eth/proposal/0xaee9727ec0319e77da7ac
 
 ```
 yarn install
-yarn hardhat node
-yarn test --network local
+yarn hardhat test
 ```
