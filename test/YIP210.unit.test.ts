@@ -74,6 +74,13 @@ describe("YIP210", function () {
 
         const description = "YIP210: rebalacing framework"
 
+        const [depositTarget, depositValue, depositSignature, depositCalldata] =
+            await callDepositWETHIntoStETH(YIP210.address)
+        targets.push(depositTarget)
+        values.push(depositValue)
+        signatures.push(depositSignature)
+        calldatas.push(depositCalldata)
+
         const [target, value, signature, calldata] = await callExecute(YIP210.address)
         targets.push(target)
         values.push(value)
@@ -180,9 +187,11 @@ describe("YIP210", function () {
     it("should rebalance when more diff than 70/30 ratio (sell steth for usdc)", async () => {
         const stETHContract: ILido = await ethers.getContractAt("ILido", STETH)
 
+        const initsteth = await stETHContract.balanceOf(RESERVES)
+
         // yam gov owns 458 eth at this time
         const submitTx = await stETHContract.submit(ethers.constants.AddressZero, {
-            value: ethers.utils.parseEther("2000"),
+            value: ethers.utils.parseEther("1500"),
         })
         await submitTx.wait(1)
 
@@ -230,16 +239,20 @@ describe("YIP210", function () {
         expect(finalUsdcBalanceReserves).to.be.gt(initUsdcBalanceReserves)
         expect(finalStethBalanceReserves).to.be.lt(initStethBalanceReserves)
 
+        const stethInitValue = stethPrice
+            .div(ethers.BigNumber.from(10).pow(8))
+            .mul(initStethBalanceReserves)
+        const usdcInitValue = usdcPrice
+            .mul(ethers.BigNumber.from(10).pow(4))
+            .mul(initUsdcBalanceReserves)
+
         expect(ratioUSDC_stETH).to.be.gt(25)
         expect(ratioUSDC_stETH).to.be.lt(35)
         expect(ratioStETH_USDC).to.be.gt(65)
         expect(ratioStETH_USDC).to.be.lt(75)
     })
 
-    it("should deposit all WETH from Reserves into STETH", async () => {
-        const stethContract = await ethers.getContractAt("IERC20", STETH)
-        const wethContract = await ethers.getContractAt("IERC20", WETH)
-
+    const depositWETHIntoStETH = async () => {
         let targets: string[] = []
         let values: number[] = []
         let signatures: string[] = []
@@ -253,6 +266,30 @@ describe("YIP210", function () {
         calldatas.push(calldata)
 
         await passProposal(targets, values, signatures, calldatas, description)
+    }
+
+    it("should deposit all WETH from Reserves into STETH", async () => {
+        await deployments.fixture(["YIP210"])
+        YIP210 = await ethers.getContract("YIP210")
+
+        let targets: string[] = []
+        let values: number[] = []
+        let signatures: string[] = []
+        let calldatas: string[] = []
+        const description = "YIP210: whitelist proposal"
+
+        const [target, value, signature, calldata] = await whitelistWithdrawals(YIP210.address)
+        targets.push(target)
+        values.push(value)
+        signatures.push(signature)
+        calldatas.push(calldata)
+
+        await passProposal(targets, values, signatures, calldatas, description)
+
+        const stethContract = await ethers.getContractAt("IERC20", STETH)
+        const wethContract = await ethers.getContractAt("IERC20", WETH)
+
+        await depositWETHIntoStETH()
 
         const finalStethBalanceReserves = await stethContract.balanceOf(RESERVES)
         const finalWethBalanceReserves = await wethContract.balanceOf(RESERVES)

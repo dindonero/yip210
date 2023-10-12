@@ -35,16 +35,16 @@ contract YIP210 {
     address internal constant RESERVES = 0x97990B693835da58A281636296D2Bf02787DEa17;
     address internal constant GOV = 0x8b4f1616751117C38a0f84F9A146cca191ea3EC5;
 
+    uint256 public constant RATIO_PRECISION_MULTIPLIER = 10000;
+
     // STETH = 70% ; USDC = 30%
-    uint256 public constant RATIO_STETH_USDC = 7000;
-    uint256 public constant RATIO_USDC_STETH = 3000;
+    uint256 public constant RATIO_STETH_USDC = (70 * RATIO_PRECISION_MULTIPLIER) / 100;
+    uint256 public constant RATIO_USDC_STETH = (30 * RATIO_PRECISION_MULTIPLIER) / 100;
 
     // Max slippage = 2% (Increased slippage due to price impact and chainlink oracle != actual curve price)
-    uint256 public constant SLIPPAGE_TOLERANCE = 200;
+    uint256 public constant SLIPPAGE_TOLERANCE = (2 * RATIO_PRECISION_MULTIPLIER) / 100;
 
-    uint256 public constant MINIMUM_REBALANCE_PERCENTAGE = 750;
-
-    uint256 public constant RATIO_PRECISION_MULTIPLIER = 10000;
+    uint256 public constant MINIMUM_REBALANCE_PERCENTAGE = (75 * RATIO_PRECISION_MULTIPLIER) / 1000;
 
     // Chainlink price feeds for ETH and USDC
     AggregatorV3Interface internal constant STETH_USD_PRICE_FEED =
@@ -72,14 +72,7 @@ contract YIP210 {
         uint256 stEthBalance = STETH.balanceOf(RESERVES);
         uint256 usdcBalance = USDC.balanceOf(RESERVES);
 
-        uint256 stEthValue = getStETHConversionRate(stEthBalance);
-        uint256 usdcValue = getUSDCConversionRate(usdcBalance);
-
-        uint256 totalValue = stEthValue + usdcValue;
-
-        uint256 stEthPercentage = (stEthValue * RATIO_PRECISION_MULTIPLIER) / totalValue;
-
-        uint256 usdcPercentage = (usdcValue * RATIO_PRECISION_MULTIPLIER) / totalValue;
+        (uint256 stEthPercentage, uint256 usdcPercentage) = getStETHAndUSDCRatios();
 
         if (stEthPercentage > RATIO_STETH_USDC) {
             if (stEthPercentage - RATIO_STETH_USDC < MINIMUM_REBALANCE_PERCENTAGE)
@@ -88,7 +81,10 @@ contract YIP210 {
                     MINIMUM_REBALANCE_PERCENTAGE
                 );
 
-            uint256 stEthToSwap = ((stEthPercentage - RATIO_STETH_USDC) * stEthBalance) /
+            uint256 stEthPercentageToSell = (RATIO_PRECISION_MULTIPLIER *
+                (stEthPercentage - RATIO_STETH_USDC)) / stEthPercentage;
+
+            uint256 stEthToSwap = (stEthPercentageToSell * stEthBalance) /
                 RATIO_PRECISION_MULTIPLIER;
             STETH.transferFrom(RESERVES, address(this), stEthToSwap);
 
@@ -111,8 +107,10 @@ contract YIP210 {
                     MINIMUM_REBALANCE_PERCENTAGE
                 );
 
-            uint256 usdcToSwap = ((usdcPercentage - RATIO_USDC_STETH) * usdcBalance) /
-                RATIO_PRECISION_MULTIPLIER;
+            uint256 usdcPercentageToSell = (RATIO_PRECISION_MULTIPLIER *
+                (usdcPercentage - RATIO_USDC_STETH)) / usdcPercentage;
+
+            uint256 usdcToSwap = (usdcPercentageToSell * usdcBalance) / RATIO_PRECISION_MULTIPLIER;
             USDC.transferFrom(RESERVES, address(this), usdcToSwap);
 
             uint256 stETHExpected = (getUSDCConversionRate(usdcToSwap) * 10 ** 18) /
@@ -130,6 +128,11 @@ contract YIP210 {
             emit RebalancedUSDCToStETH(usdcToSwap, stEthReceived);
 
             STETH.transfer(RESERVES, stEthReceived);
+        } else {
+            revert YIP210__MinimumRebalancePercentageNotReached(
+                usdcPercentage,
+                MINIMUM_REBALANCE_PERCENTAGE
+            );
         }
 
         lastExecuted = block.timestamp;
@@ -141,6 +144,22 @@ contract YIP210 {
         WETH.withdraw(wethBalance);
         depositETHToLido();
         STETH.transfer(RESERVES, STETH.balanceOf(address(this)));
+    }
+
+    function getStETHAndUSDCRatios() public view returns (uint256, uint256) {
+        uint256 stEthBalance = STETH.balanceOf(RESERVES);
+        uint256 usdcBalance = USDC.balanceOf(RESERVES);
+
+        uint256 stEthValue = getStETHConversionRate(stEthBalance);
+        uint256 usdcValue = getUSDCConversionRate(usdcBalance);
+
+        uint256 totalValue = stEthValue + usdcValue;
+
+        uint256 stEthPercentage = (stEthValue * RATIO_PRECISION_MULTIPLIER) / totalValue;
+
+        uint256 usdcPercentage = (usdcValue * RATIO_PRECISION_MULTIPLIER) / totalValue;
+
+        return (stEthPercentage, usdcPercentage);
     }
 
     function curveSwapStETHToUSDC(uint256 amount, uint256 minAmountOut) internal returns (uint256) {

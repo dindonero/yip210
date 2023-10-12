@@ -1,6 +1,3 @@
-import { RESERVES, STETH, USDC } from "../helper-hardhat-config"
-import { ethers } from "hardhat"
-
 export const callDepositWETHIntoStETH = async (
     proposalAddress: string
 ): Promise<[string, number, string, string]> => {
